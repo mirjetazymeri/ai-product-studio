@@ -1,0 +1,63 @@
+@import 'tailwindcss';
+
+@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
+@source '../../storage/framework/views/*.php';
+
+/* Light theme only: stops the OS dark preference restyling Laravel's pagination views. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+    --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
+        'Segoe UI Symbol', 'Noto Color Emoji';
+}
+
+@layer base {
+    button:not(:disabled),
+    [role='tab'],
+    summary {
+        cursor: pointer;
+    }
+
+    :focus-visible {
+        outline: 2px solid var(--color-indigo-500);
+        outline-offset: 2px;
+    }
+
+    dialog::backdrop {
+        background: rgb(17 24 39 / 0.4);
+    }
+}
+
+@layer components {
+    .btn {
+        @apply inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium whitespace-nowrap transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+    }
+
+    .btn-primary {
+        @apply bg-indigo-600 text-white hover:bg-indigo-700 disabled:hover:bg-indigo-600;
+    }
+
+    .btn-secondary {
+        @apply bg-white text-gray-700 ring-1 ring-gray-300 ring-inset hover:bg-gray-50;
+    }
+
+    .btn-danger {
+        @apply bg-red-600 text-white hover:bg-red-700;
+    }
+
+    .btn-danger-soft {
+        @apply bg-white text-red-600 ring-1 ring-red-200 ring-inset hover:bg-red-50;
+    }
+
+    .field {
+        @apply block w-full rounded-lg border-0 bg-white px-3 py-2 text-sm text-gray-900 ring-1 ring-gray-300 transition-shadow ring-inset placeholder:text-gray-400 focus:ring-2 focus:ring-indigo-500 focus:outline-none;
+    }
+
+    .field-invalid {
+        @apply ring-red-400 focus:ring-red-500;
+    }
+
+    .card {
+        @apply rounded-xl bg-white ring-1 ring-gray-200;
+    }
+}
