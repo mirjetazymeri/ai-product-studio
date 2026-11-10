@@ -155,7 +155,7 @@ Downloads need the token, and files expire after `CATALOG_RETENTION_DAYS`, which
 
 ## Plans
 
-The API needs a plan that includes it, Pro or Agency, as well as the right token ability. Other plans get `403 plan_feature_unavailable` on every endpoint except `GET /me`, which also reports the plan and this month's usage. Each successful generation or analysis uses one unit of the monthly allowance. See the [billing guide](../billing.md).
+The API needs a plan that includes it, Pro or Agency, as well as the right token ability. Other plans get `403 plan_feature_unavailable` on every endpoint except `GET /me`, which also reports the plan and this month's usage. Each successful generation or analysis uses one unit of the monthly allowance. See the [billing guide](../integrations/billing.md).
 
 ## Security notes
 

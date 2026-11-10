@@ -1,0 +1,46 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: dom, curl, fileinfo, mbstring, pdo_sqlite, xml, xmlreader, xmlwriter, zip
+          coverage: none
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Prepare the environment
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      # phpunit.xml uses in-memory SQLite and placeholder keys. No real credentials are needed.
+      - name: Run tests
+        run: php artisan test
+
+      - name: Check code style
+        run: vendor/bin/pint --test app routes tests database config
+
+      - name: Build frontend
+        run: |
+          npm ci --ignore-scripts
+          npm run build

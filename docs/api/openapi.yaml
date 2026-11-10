@@ -638,11 +638,11 @@ components:
       properties:
         language: { $ref: '#/components/schemas/Language' }
         regenerate: { type: boolean, default: false }
-        tone: { type: string, description: A value from the ContentTone enum. Invalid values answer 422. }
-        audience: { type: string, description: A value from the TargetAudience enum. }
+        tone: { type: string, enum: [professional, friendly, luxury, minimalist, playful, technical], default: professional }
+        audience: { type: string, enum: [general_consumers, gamers, professionals, students, parents, gift_buyers, custom], default: general_consumers }
         custom_audience: { type: string, maxLength: 80, description: Required when audience is custom. }
-        length: { type: string, description: A value from the ContentLength enum. }
-        style: { type: string, description: A value from the WritingStyle enum. }
+        length: { type: string, enum: [short, standard, detailed], default: standard }
+        style: { type: string, enum: [informative, persuasive, seo_optimized, storytelling], default: seo_optimized }
         custom_instructions: { type: string, maxLength: 1000 }
     GenerationAccepted:
       type: object

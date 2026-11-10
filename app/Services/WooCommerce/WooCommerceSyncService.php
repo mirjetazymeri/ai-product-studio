@@ -14,7 +14,7 @@ use Illuminate\Support\Facades\Log;
  *
  * WooCommerce has no conditional update, so the store is read again immediately before
  * each write. A small window remains between that read and the write, in which someone
- * else's edit could be overwritten. See docs/woocommerce-integration.md.
+ * else's edit could be overwritten. See docs/integrations/woocommerce-integration.md.
  */
 class WooCommerceSyncService
 {
