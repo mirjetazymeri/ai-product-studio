@@ -12,6 +12,7 @@ use App\Models\Product;
 use App\Models\User;
 use App\Models\WooCommerceProductLink;
 use App\Models\WooCommerceStore;
+use App\Services\Billing\Exceptions\PlanRestrictionException;
 use App\Services\Catalog\CatalogImporter;
 use App\Services\ProductService;
 use App\Services\WooCommerce\Exceptions\WooCommerceException;
@@ -360,6 +361,8 @@ class WooCommerceProductImporter
 
                 $locked->update(['result' => $result, 'result_message' => $message]);
             });
+        } catch (PlanRestrictionException $exception) {
+            $row->update(['result' => CatalogImportRow::FAILED, 'result_message' => $exception->getMessage()]);
         } catch (Throwable $exception) {
             Log::warning('WooCommerce import row failed.', ['transfer_id' => $transfer->id, 'row_id' => $row->id, 'error' => $exception::class]);
 
@@ -412,7 +415,7 @@ class WooCommerceProductImporter
         // and demo products have no local SKU, so they can't take one from the real catalog.
         $sku = ! $store->isDemo() && $remote['sku'] !== null && ! $user->products()->where('sku', $remote['sku'])->exists() && mb_strlen($remote['sku']) <= 100 ? $remote['sku'] : null;
 
-        $product = $this->products->create($user, [...$this->mapper->localAttributes($remote), 'sku' => $sku]);
+        $product = $this->products->create($user, [...$this->mapper->localAttributes($remote), 'sku' => $sku], countsTowardsPlan: ! $store->isDemo());
 
         if ($store->isDemo()) {
             $product->forceFill(['demo_store_id' => $store->id])->save();

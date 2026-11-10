@@ -23,6 +23,7 @@ enum WooCommerceError: string
     case InvalidResponse = 'invalid_response';
     case Disconnected = 'disconnected';
     case OutcomeUnknown = 'outcome_unknown';
+    case PlanRequired = 'plan_required';
 
     public static function fromHttpStatus(int $status, string $code = ''): self
     {
@@ -57,6 +58,7 @@ enum WooCommerceError: string
             self::InvalidResponse => 'The store returned a response we couldn\'t read.',
             self::Disconnected => 'This store has been disconnected.',
             self::OutcomeUnknown => 'The store didn\'t confirm this update, so it may or may not have been applied. Retrying checks the store first.',
+            self::PlanRequired => 'Your current plan doesn\'t include WooCommerce. Your store connection, links and history are kept. Upgrade to continue.',
         };
     }
 }

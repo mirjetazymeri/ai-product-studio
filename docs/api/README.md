@@ -71,13 +71,13 @@ Errors have a `message` for people and a stable `code` for programs. Validation 
 | --- | --- | --- |
 | 400 | `malformed_json`, `invalid_idempotency_key` | The request couldn't be read |
 | 401 | `unauthenticated` | Missing, wrong, revoked or expired token |
-| 403 | `insufficient_ability`, `https_required` | The token can't do this |
+| 403 | `insufficient_ability`, `https_required`, `plan_feature_unavailable`, `plan_limit_reached` | The token or the account's plan doesn't allow this |
 | 404 | `not_found`, `no_approved_content` | Doesn't exist, or isn't yours |
 | 405 | `method_not_allowed` | Wrong method |
 | 409 | `content_exists`, `duplicate_request`, `linked_to_store`, `external_reference_conflict`, `export_not_ready`, `export_failed`, `idempotency_key_conflict`, `idempotency_in_progress` | Conflict with the current state |
 | 410 | `export_expired` | The export file is gone |
 | 422 | field errors, `missing_product_data`, `no_products` | Invalid input |
-| 429 | `rate_limited`, `daily_limit_reached` | Limit reached. See `retry_after` and `Retry-After` |
+| 429 | `rate_limited`, `daily_limit_reached`, `monthly_limit_reached` | Limit reached. See `retry_after` and `Retry-After` |
 | 500 | `server_error` | Something failed here. No details are returned |
 | 502, 504 | AI error codes | Gemini failed or timed out during analysis |
 | 503 | `ai_unavailable`, `service_unavailable` | Temporarily unavailable |
@@ -152,6 +152,10 @@ The Gemini limits still apply on top, and are shared with the web app: `AI_GENER
 `POST /exports` returns an `export_id` to poll. `approved_only` defaults to `true`. Setting it to `false` adds saved text imported from a store. Drafts are never exported through the API.
 
 Downloads need the token, and files expire after `CATALOG_RETENTION_DAYS`, which defaults to 7. Export needs a queue worker.
+
+## Plans
+
+The API needs a plan that includes it, Pro or Agency, as well as the right token ability. Other plans get `403 plan_feature_unavailable` on every endpoint except `GET /me`, which also reports the plan and this month's usage. Each successful generation or analysis uses one unit of the monthly allowance. See the [billing guide](../billing.md).
 
 ## Security notes
 

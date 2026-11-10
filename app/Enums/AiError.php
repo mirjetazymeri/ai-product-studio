@@ -27,6 +27,8 @@ enum AiError: string
     case DuplicateRequest = 'duplicate_request';
     case RateLimited = 'rate_limited';
     case DailyLimitReached = 'daily_limit_reached';
+    case MonthlyLimitReached = 'monthly_limit_reached';
+    case PlanFeatureUnavailable = 'plan_feature_unavailable';
     case DatabaseError = 'database_error';
     case Interrupted = 'interrupted';
     case Unexpected = 'unexpected';
@@ -54,6 +56,8 @@ enum AiError: string
             self::DuplicateRequest => 'A generation is already running. Please wait for it to finish.',
             self::RateLimited => 'You\'re generating too quickly. Please wait a minute and try again.',
             self::DailyLimitReached => 'The daily AI generation limit has been reached. Please try again tomorrow.',
+            self::MonthlyLimitReached => 'You\'ve used this month\'s AI allowance on your plan. Upgrade, or wait until it resets next month.',
+            self::PlanFeatureUnavailable => 'This AI feature isn\'t included in your current plan.',
             self::DatabaseError => 'We couldn\'t save this to the database. Please try again.',
             self::Interrupted => 'This generation was interrupted before it finished.',
             self::Unexpected => 'Something went wrong. Please try again.',
@@ -84,7 +88,8 @@ enum AiError: string
             self::MissingProductData, self::UnclearProductDescription => 422,
             self::ProductMissing, self::NotSavable => 410,
             self::ContentExists, self::DuplicateRequest => 409,
-            self::QuotaExceeded, self::RateLimited, self::DailyLimitReached => 429,
+            self::QuotaExceeded, self::RateLimited, self::DailyLimitReached, self::MonthlyLimitReached => 429,
+            self::PlanFeatureUnavailable => 403,
             self::Timeout => 504,
             self::NetworkError, self::InvalidResponse, self::EmptyResponse, self::BlockedResponse, self::ProviderError => 502,
             self::MissingApiKey, self::MissingModel, self::InvalidApiKey, self::ModelUnavailable, self::ProviderUnavailable => 503,

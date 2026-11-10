@@ -4,12 +4,16 @@ namespace App\Services\AI;
 
 use App\Enums\AiError;
 use App\Enums\BulkItemStatus;
+use App\Enums\UsageAction;
 use App\Jobs\RunBulkGeneration;
 use App\Models\BulkGenerationBatch;
 use App\Models\BulkGenerationItem;
 use App\Models\Product;
 use App\Models\User;
 use App\Services\AI\Exceptions\AiGenerationException;
+use App\Services\Billing\Exceptions\PlanRestrictionException;
+use App\Services\Billing\PlanEntitlementService;
+use App\Services\Billing\UsageMeteringService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\RateLimiter;
@@ -34,6 +38,8 @@ class BulkGenerationService
     public function __construct(
         private readonly ProductContentGenerator $generator,
         private readonly GenerationQuota $quota,
+        private readonly UsageMeteringService $usage,
+        private readonly PlanEntitlementService $entitlements,
     ) {}
 
     public function estimateRequests(int $products, int $languages): int
@@ -55,9 +61,21 @@ class BulkGenerationService
             return $existing;
         }
 
-        $products = $this->eligibleProducts($user, $productIds);
+        $this->entitlements->ensure($user, 'ai.bulk');
 
-        if ($this->estimateRequests($products->count(), count($languages)) > $this->quota->remainingFor($user)) {
+        $products = $this->eligibleProducts($user, $productIds);
+        $requests = $this->estimateRequests($products->count(), count($languages));
+        $batchLimit = $this->entitlements->limit($user, 'bulk_items_per_batch');
+
+        if ($requests > $batchLimit) {
+            throw new PlanRestrictionException("Your plan allows {$batchLimit} items per bulk batch, and this batch has {$requests}. Choose fewer products or languages, or upgrade.", 'plan_limit_reached', 'ai.bulk', $this->entitlements->plan($user)->key);
+        }
+
+        if ($requests > $this->usage->remaining($user)) {
+            throw new AiGenerationException(AiError::MonthlyLimitReached);
+        }
+
+        if ($requests > $this->quota->remainingFor($user)) {
             throw new AiGenerationException(AiError::DailyLimitReached);
         }
 
@@ -115,6 +133,14 @@ class BulkGenerationService
         }
 
         $this->requeueStaleItems($batch);
+
+        // Checked for every item, so a plan that lapses mid-batch stops the remaining work.
+        if (! $this->entitlements->can($batch->user, 'ai.bulk')) {
+            $batch->items()->where('status', BulkItemStatus::Queued->value)->update(['status' => BulkItemStatus::Failed->value, 'error_code' => AiError::PlanFeatureUnavailable->value]);
+            $this->finish($batch);
+
+            return null;
+        }
 
         if (! $batch->items()->where('status', BulkItemStatus::Queued->value)->exists()) {
             $this->finish($batch);
@@ -216,6 +242,7 @@ class BulkGenerationService
                 $item->language,
                 false,
                 $batch->generationPreferences(),
+                UsageAction::BulkItem,
             );
         } catch (AiGenerationException $exception) {
             return $this->handleFailure($batch, $item, $exception);
@@ -247,7 +274,7 @@ class BulkGenerationService
             return $exception->retryAfter ?? self::QUOTA_RETRY_SECONDS;
         }
 
-        if ($error === AiError::DailyLimitReached || $error === AiError::QuotaExceeded || in_array($error, self::FATAL_ERRORS, true)) {
+        if ($error === AiError::DailyLimitReached || $error === AiError::MonthlyLimitReached || $error === AiError::QuotaExceeded || in_array($error, self::FATAL_ERRORS, true)) {
             $this->failRemaining($batch, $item, $error);
             $this->finish($batch);
 

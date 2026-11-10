@@ -11,6 +11,7 @@ use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
+use Laravel\Cashier\Cashier;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -21,6 +22,9 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->app->bind(CatalogExportFormat::class, GenericExportFormat::class);
         $this->app->bind(HostResolver::class, DnsHostResolver::class);
+
+        // The webhook route is defined in routes/web.php so it can refuse to run without a secret.
+        Cashier::ignoreRoutes();
     }
 
     /**

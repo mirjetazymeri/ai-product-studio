@@ -4,6 +4,7 @@ namespace App\Services\WooCommerce;
 
 use App\Enums\WooCommerceError;
 use App\Models\WooCommerceStore;
+use App\Services\Billing\PlanEntitlementService;
 use App\Services\WooCommerce\Exceptions\WooCommerceException;
 use App\Services\WooCommerce\Transport\DemoWooCommerceTransport;
 use App\Services\WooCommerce\Transport\RealWooCommerceTransport;
@@ -24,6 +25,7 @@ class WooCommerceService
     public function __construct(
         private readonly RealWooCommerceTransport $real,
         private readonly DemoWooCommerceTransport $demo,
+        private readonly PlanEntitlementService $entitlements,
     ) {}
 
     /**
@@ -90,6 +92,11 @@ class WooCommerceService
     {
         if ($store->isDisconnected()) {
             throw new WooCommerceException(WooCommerceError::Disconnected);
+        }
+
+        // Every store request passes here, including queued imports and syncs.
+        if (! $store->isDemo() && ! $this->entitlements->can($store->user, 'integrations.woocommerce')) {
+            throw new WooCommerceException(WooCommerceError::PlanRequired);
         }
 
         return $store->isDemo() ? $this->demo : $this->real;

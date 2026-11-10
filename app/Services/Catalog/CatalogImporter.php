@@ -10,6 +10,7 @@ use App\Models\CatalogTransfer;
 use App\Models\Product;
 use App\Models\ProductExternalReference;
 use App\Models\User;
+use App\Services\Billing\Exceptions\PlanRestrictionException;
 use App\Services\ProductService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -97,6 +98,8 @@ final class CatalogImporter
 
                 $locked->update(['result' => $result, 'result_message' => $message]);
             });
+        } catch (PlanRestrictionException $exception) {
+            $row->update(['result' => CatalogImportRow::FAILED, 'result_message' => $exception->getMessage()]);
         } catch (Throwable $exception) {
             Log::warning('Catalog import row failed.', ['transfer_id' => $transfer->id, 'row' => $row->first_row, 'error' => $exception::class]);
 

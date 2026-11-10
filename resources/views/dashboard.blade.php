@@ -9,7 +9,21 @@
         <x-stat-card label="Total products" :value="$stats['total']" icon="cube" />
         <x-stat-card label="Drafts" :value="$stats['draft']" icon="document" />
         <x-stat-card label="Published" :value="$stats['published']" icon="check" />
-        <x-stat-card label="AI generations" :value="$stats['generations']" icon="sparkles" />
+        <x-stat-card label="AI generations (all time)" :value="$stats['generations']" icon="sparkles" />
+    </section>
+
+    <section class="card p-5 sm:p-6" aria-label="Plan and usage">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+            <div class="min-w-0">
+                <h2 class="text-sm font-semibold">{{ $billing['plan']->name }} plan <span class="font-normal text-gray-500">· {{ $billing['state']->status->label() }}</span></h2>
+                <p class="mt-0.5 text-xs text-gray-500">This month's usage. Resets {{ $billing['period']['resets_at']->format('M j') }} (UTC).</p>
+            </div>
+            <a href="{{ route('billing.index') }}" class="btn btn-secondary">{{ $billing['plan']->rank < 3 ? 'Upgrade' : 'Manage plan' }}</a>
+        </div>
+        <div class="mt-4 grid gap-5 sm:grid-cols-2">
+            <x-usage-meter label="AI generations this month" :used="$billing['ai']['used']" :limit="$billing['ai']['limit']" :percent="$billing['ai']['percent']" :hint="number_format($billing['ai']['remaining']).' remaining'" />
+            <x-usage-meter label="Products" :used="$billing['products']['used']" :limit="$billing['products']['limit']" :percent="$billing['products']['percent']" :hint="number_format($billing['products']['remaining']).' remaining'" />
+        </div>
     </section>
 
     <div class="grid gap-6 lg:grid-cols-3">

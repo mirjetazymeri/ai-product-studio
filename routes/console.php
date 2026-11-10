@@ -10,3 +10,4 @@ Artisan::command('inspire', function () {
 
 Schedule::command('catalog:prune')->daily();
 Schedule::command('api:prune')->daily();
+Schedule::command('billing:reconcile')->daily();

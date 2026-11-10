@@ -5,6 +5,8 @@ namespace Tests;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
+use Stripe\ApiRequestor;
+use Tests\Support\FakeStripeHttpClient;
 
 abstract class TestCase extends BaseTestCase
 {
@@ -34,5 +36,8 @@ abstract class TestCase extends BaseTestCase
 
         // Any HTTP call a test hasn't explicitly faked fails instead of reaching Gemini.
         Http::preventStrayRequests();
+
+        // Stripe's SDK has its own HTTP client, so it needs its own guard.
+        ApiRequestor::setHttpClient(new FakeStripeHttpClient);
     }
 }

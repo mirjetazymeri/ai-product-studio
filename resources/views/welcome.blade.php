@@ -6,6 +6,7 @@
             <x-brand href="{{ route('home') }}" />
 
             <nav class="flex items-center gap-2">
+                <a href="{{ route('pricing') }}" class="btn btn-secondary">Pricing</a>
                 @auth
                     <a href="{{ route('dashboard') }}" class="btn btn-primary">Open dashboard</a>
                 @else

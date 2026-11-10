@@ -22,6 +22,7 @@
                 <x-nav-link :href="route('ai.reviews.index')" icon="check" :active="request()->routeIs('ai.reviews.*')">Content Review</x-nav-link>
                 <x-nav-link :href="route('catalog.history')" icon="document" :active="request()->routeIs('catalog.*')">Import &amp; Export</x-nav-link>
                 <x-nav-link :href="route('integrations.index')" icon="cube" :active="request()->routeIs('integrations.*')">Integrations</x-nav-link>
+                <x-nav-link :href="route('billing.index')" icon="document" :active="request()->routeIs('billing.*') || request()->routeIs('pricing')">Billing &amp; Subscription</x-nav-link>
                 <x-nav-link :href="route('settings.edit')" icon="settings" :active="request()->routeIs('settings.*')">Settings</x-nav-link>
             </nav>
 

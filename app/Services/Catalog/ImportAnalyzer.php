@@ -8,6 +8,7 @@ use App\Models\CatalogImportRow;
 use App\Models\CatalogTransfer;
 use App\Models\ProductExternalReference;
 use App\Models\User;
+use App\Services\Billing\PlanEntitlementService;
 use App\Services\Catalog\Exceptions\CatalogFileException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -40,7 +41,10 @@ final class ImportAnalyzer
     /** @var array<string, array{string, int}> lowercase SKU => [group key, row number] */
     private array $skuOwners = [];
 
-    public function __construct(private readonly SpreadsheetReader $reader) {}
+    public function __construct(
+        private readonly SpreadsheetReader $reader,
+        private readonly PlanEntitlementService $entitlements,
+    ) {}
 
     /**
      * @param  array<int, string>  $mapping  destination field by column index
@@ -54,6 +58,7 @@ final class ImportAnalyzer
         $this->skuOwners = [];
 
         $total = 0;
+        $planRows = $this->entitlements->limit($transfer->user, 'import_rows_per_file');
         $path = Storage::disk('local')->path($transfer->stored_path);
 
         foreach ($this->reader->rows($path, $transfer->file_type) as $number => $cells) {
@@ -63,6 +68,10 @@ final class ImportAnalyzer
 
             if (++$total > config('catalog.max_rows')) {
                 throw new CatalogFileException('This file has more than '.number_format(config('catalog.max_rows')).' rows. Please split it into smaller files.');
+            }
+
+            if ($total > $planRows) {
+                throw new CatalogFileException('Your plan imports up to '.number_format($planRows).' rows per file. Upgrade, or split the file into smaller ones.');
             }
 
             $this->addRow($number, $cells, $mapping, $defaultLanguage);

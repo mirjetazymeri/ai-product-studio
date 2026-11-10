@@ -8,6 +8,7 @@ use App\Http\Requests\Products\ProductFilterRequest;
 use App\Http\Requests\Products\SaveProductRequest;
 use App\Models\Product;
 use App\Models\WooCommerceProductLink;
+use App\Services\Billing\PlanEntitlementService;
 use App\Services\ProductService;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\RedirectResponse;
@@ -37,9 +38,11 @@ class ProductController extends Controller
         ]);
     }
 
-    public function create(Request $request): View
+    public function create(Request $request, PlanEntitlementService $entitlements): View
     {
         Gate::authorize('create', Product::class);
+
+        $entitlements->ensureCanCreateProduct($request->user(), lock: false);
 
         return view('products.create', [
             'categories' => $request->user()->products()

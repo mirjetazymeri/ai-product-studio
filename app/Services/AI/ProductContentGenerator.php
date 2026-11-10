@@ -6,12 +6,15 @@ use App\Enums\AiError;
 use App\Enums\AiGenerationStatus;
 use App\Enums\ContentLanguage;
 use App\Enums\ContentSource;
+use App\Enums\UsageAction;
 use App\Jobs\GenerateQueuedContent;
 use App\Models\AiGeneration;
 use App\Models\Product;
 use App\Models\User;
 use App\Services\AI\Exceptions\AiGenerationException;
 use App\Services\AI\Prompts\ProductContentPrompt;
+use App\Services\Billing\PlanEntitlementService;
+use App\Services\Billing\UsageMeteringService;
 use App\Services\ProductService;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\QueryException;
@@ -34,6 +37,8 @@ class ProductContentGenerator
         private readonly GenerationQuota $quota,
         private readonly ProductService $products,
         private readonly ContentReviewQueue $reviewQueue,
+        private readonly UsageMeteringService $usage,
+        private readonly PlanEntitlementService $entitlements,
     ) {}
 
     /**
@@ -47,7 +52,9 @@ class ProductContentGenerator
         ContentLanguage $language,
         bool $isRegeneration = false,
         GenerationPreferences $preferences = new GenerationPreferences,
+        ?UsageAction $usageAction = null,
     ): AiGeneration {
+        $this->ensureEntitled($user);
         $this->ensureProductHasEnoughData($product);
         $this->gemini->ensureConfigured();
 
@@ -61,7 +68,7 @@ class ProductContentGenerator
             $this->closeStaleGenerations($user);
             $this->quota->ensureAvailableFor($user);
 
-            $generation = $this->start($user, $product, $language, $isRegeneration, $preferences);
+            $generation = $this->startMetered($user, $product, $language, $isRegeneration, $preferences, AiGenerationStatus::Pending, $usageAction);
 
             return $this->run($generation, $product, $language, $preferences);
         } catch (QueryException $exception) {
@@ -86,6 +93,7 @@ class ProductContentGenerator
         bool $isRegeneration = false,
         GenerationPreferences $preferences = new GenerationPreferences,
     ): AiGeneration {
+        $this->ensureEntitled($user);
         $this->ensureProductHasEnoughData($product);
         $this->gemini->ensureConfigured();
 
@@ -99,7 +107,7 @@ class ProductContentGenerator
 
                 $this->quota->ensureAvailableFor($user);
 
-                return $this->start($user, $product, $language, $isRegeneration, $preferences, AiGenerationStatus::Queued);
+                return $this->startMetered($user, $product, $language, $isRegeneration, $preferences, AiGenerationStatus::Queued);
             });
         } catch (LockTimeoutException) {
             throw new AiGenerationException(AiError::DuplicateRequest);
@@ -205,6 +213,12 @@ class ProductContentGenerator
             ->whereKey($generationId)
             ->whereIn('status', [AiGenerationStatus::Queued->value, AiGenerationStatus::Pending->value, AiGenerationStatus::Processing->value])
             ->update(['status' => AiGenerationStatus::Failed->value, 'error_code' => $error->value]);
+
+        $userId = AiGeneration::query()->whereKey($generationId)->value('user_id');
+
+        if ($userId !== null) {
+            $this->usage->release($userId, UsageMeteringService::generationKey($generationId));
+        }
     }
 
     /**
@@ -277,6 +291,41 @@ class ProductContentGenerator
                 ->where(fn ($pending) => $pending->where('status', AiGenerationStatus::Pending->value)->where('created_at', '<', $cutoff))
                 ->orWhere(fn ($processing) => $processing->where('status', AiGenerationStatus::Processing->value)->where('updated_at', '<', $cutoff)))
             ->update(['status' => AiGenerationStatus::Failed->value, 'error_code' => AiError::Interrupted->value]);
+
+        $this->usage->releaseForFailedGenerations($user);
+    }
+
+    /**
+     * @throws AiGenerationException
+     */
+    private function ensureEntitled(User $user): void
+    {
+        if (! $this->entitlements->can($user, 'ai.generate')) {
+            throw new AiGenerationException(AiError::PlanFeatureUnavailable);
+        }
+    }
+
+    /**
+     * In one transaction, so a request over the monthly allowance leaves no trace.
+     */
+    private function startMetered(User $user, Product $product, ContentLanguage $language, bool $isRegeneration, GenerationPreferences $preferences, AiGenerationStatus $status, ?UsageAction $usageAction = null): AiGeneration
+    {
+        return DB::transaction(function () use ($user, $product, $language, $isRegeneration, $preferences, $status, $usageAction) {
+            // Before the insert, whose foreign key check would otherwise deadlock with this lock.
+            $this->usage->lockUser($user->id);
+
+            $generation = $this->start($user, $product, $language, $isRegeneration, $preferences, $status);
+
+            $this->usage->reserve(
+                $user,
+                $usageAction ?? ($isRegeneration ? UsageAction::Regeneration : UsageAction::Generation),
+                UsageMeteringService::generationKey($generation->id),
+                'generation',
+                $generation->id,
+            );
+
+            return $generation;
+        });
     }
 
     private function start(User $user, Product $product, ContentLanguage $language, bool $isRegeneration, GenerationPreferences $preferences, AiGenerationStatus $status = AiGenerationStatus::Pending): AiGeneration
@@ -310,6 +359,9 @@ class ProductContentGenerator
                 ...($exception->usage ?? new TokenUsage)->toColumns(),
             ]);
 
+            // A failed request produced nothing, so it doesn't use the monthly allowance.
+            $this->usage->release($generation->user_id, UsageMeteringService::generationKey($generation->id));
+
             throw $exception;
         }
 
@@ -318,6 +370,8 @@ class ProductContentGenerator
             'generated_content' => $content->toArray(),
             ...$result->usage->toColumns(),
         ]);
+
+        $this->usage->consume($generation->user_id, UsageMeteringService::generationKey($generation->id));
 
         return $generation;
     }

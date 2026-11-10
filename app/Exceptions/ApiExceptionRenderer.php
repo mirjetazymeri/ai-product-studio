@@ -55,6 +55,10 @@ final class ApiExceptionRenderer
             $retryAfter = (int) ceil(now()->diffInSeconds(today()->addDay()));
         }
 
+        if ($exception->error === AiError::MonthlyLimitReached) {
+            $retryAfter = (int) ceil(now()->diffInSeconds(now('UTC')->startOfMonth()->addMonth()));
+        }
+
         return $this->error(
             $exception->error->httpStatus(),
             $exception->error->publicCode(),

@@ -5,9 +5,12 @@ namespace App\Services\AI;
 use App\Enums\AiError;
 use App\Enums\AiGenerationStatus;
 use App\Enums\ProductStatus;
+use App\Enums\UsageAction;
 use App\Models\User;
 use App\Services\AI\Exceptions\AiGenerationException;
 use App\Services\AI\Prompts\ProductInformationPrompt;
+use App\Services\Billing\PlanEntitlementService;
+use App\Services\Billing\UsageMeteringService;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -24,6 +27,8 @@ class ProductInformationExtractor
         private readonly GeminiService $gemini,
         private readonly ProductInformationPrompt $prompt,
         private readonly GenerationQuota $quota,
+        private readonly UsageMeteringService $usage,
+        private readonly PlanEntitlementService $entitlements,
     ) {}
 
     /**
@@ -35,6 +40,10 @@ class ProductInformationExtractor
      */
     public function extract(User $user, string $description): array
     {
+        if (! $this->entitlements->can($user, 'ai.analyze')) {
+            throw new AiGenerationException(AiError::PlanFeatureUnavailable);
+        }
+
         $this->gemini->ensureConfigured();
 
         // The same lock as content generation: one AI request at a time per user.
@@ -47,7 +56,20 @@ class ProductInformationExtractor
         try {
             $this->quota->ensureAvailableFor($user);
 
-            return $this->analyse($user, $description);
+            $usageKey = 'analysis:'.Str::uuid();
+            $this->usage->reserve($user, UsageAction::Analysis, $usageKey, 'analysis');
+
+            try {
+                $product = $this->analyse($user, $description);
+            } catch (\Throwable $exception) {
+                $this->usage->release($user->id, $usageKey);
+
+                throw $exception;
+            }
+
+            $this->usage->consume($user->id, $usageKey);
+
+            return $product;
         } catch (QueryException $exception) {
             Log::error('Product analysis could not be recorded.', ['user_id' => $user->id, 'sql_state' => $exception->getCode()]);
 

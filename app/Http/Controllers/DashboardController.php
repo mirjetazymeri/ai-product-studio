@@ -4,12 +4,13 @@ namespace App\Http\Controllers;
 
 use App\Enums\AiGenerationStatus;
 use App\Enums\ProductStatus;
+use App\Services\Billing\BillingOverviewService;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
 
 class DashboardController extends Controller
 {
-    public function __invoke(Request $request): View
+    public function __invoke(Request $request, BillingOverviewService $billing): View
     {
         $user = $request->user();
 
@@ -21,6 +22,7 @@ class DashboardController extends Controller
                 'generations' => $user->aiGenerations()->where('status', AiGenerationStatus::Succeeded->value)->count(),
             ],
             'recentProducts' => $user->products()->sortedByCreation()->limit(5)->get(),
+            'billing' => $billing->for($user),
         ]);
     }
 }

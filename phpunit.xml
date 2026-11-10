@@ -29,6 +29,10 @@
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>
+        <!-- Existing feature tests exercise paid features. Billing tests set the plan they need. -->
+        <env name="BILLING_PROVIDER" value="demo"/>
+        <env name="BILLING_MODE" value="demo"/>
+        <env name="BILLING_DEFAULT_PLAN" value="agency"/>
         <env name="GEMINI_API_KEY" value="test-gemini-key"/>
         <env name="GEMINI_MODEL" value="test-gemini-model"/>
         <env name="GEMINI_BASE_URL" value="https://gemini.test/v1beta"/>

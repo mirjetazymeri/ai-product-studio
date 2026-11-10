@@ -528,6 +528,16 @@ components:
                 type: string
                 enum: ['products:read', 'products:write', 'content:read', 'content:write', 'ai:generate', 'ai:read', 'exports:read']
             expires_at: { type: string, format: date-time, nullable: true }
+        subscription:
+          type: object
+          properties:
+            plan: { type: string, enum: [free, starter, pro, agency] }
+            status: { type: string, enum: [free, trialing, active, past_due, canceling, canceled, expired, incomplete] }
+            ai_generations_used: { type: integer }
+            ai_generations_limit: { type: integer }
+            products_used: { type: integer }
+            products_limit: { type: integer }
+            usage_resets_at: { type: string, format: date-time }
     ExternalReference:
       type: object
       required: [source, external_id]
@@ -791,7 +801,7 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
     Forbidden:
-      description: The token lacks the required ability, or HTTPS is required.
+      description: The token lacks the required ability, the account's plan doesn't allow this, or HTTPS is required.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }

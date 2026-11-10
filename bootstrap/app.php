@@ -2,6 +2,8 @@
 
 use App\Exceptions\ApiExceptionRenderer;
 use App\Http\Middleware\EnforceIdempotency;
+use App\Http\Middleware\EnsurePlanFeature;
+use App\Http\Middleware\EnsureStorePlan;
 use App\Http\Middleware\PrepareApiRequest;
 use App\Http\Middleware\ThrottleFailedApiAuthentication;
 use Illuminate\Foundation\Application;
@@ -28,7 +30,12 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'abilities' => CheckAbilities::class,
             'idempotent' => EnforceIdempotency::class,
+            'plan' => EnsurePlanFeature::class,
+            'plan.store' => EnsureStorePlan::class,
         ]);
+
+        // Stripe can't send a CSRF token. Its requests are checked by signature instead.
+        $middleware->preventRequestForgery(except: ['stripe/webhook']);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         // Validation failures flash input to the session, which isn't encrypted.

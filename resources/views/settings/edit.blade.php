@@ -106,6 +106,9 @@
                 @endif
             </div>
 
+            @unless ($apiIncluded)
+                <p class="mt-5 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 ring-1 ring-amber-200">The REST API isn't included in your current plan. <a href="{{ route('pricing') }}" class="font-medium underline">Compare plans</a></p>
+            @else
             <form method="POST" action="{{ route('settings.api-tokens.store') }}" data-single-submit class="mt-5 space-y-4 border-t border-gray-100 pt-5">
                 @csrf
                 <h3 class="text-sm font-semibold">Generate Token</h3>
@@ -131,6 +134,7 @@
 
                 <button type="submit" class="btn btn-primary">Generate Token</button>
             </form>
+            @endunless
         </section>
     </div>
 </x-layouts.app>

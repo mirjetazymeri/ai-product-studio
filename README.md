@@ -32,6 +32,21 @@ AI Product Studio has a versioned REST API at `/api/v1`, so an ERP, a Laravel pr
 
 Generation and export need a queue worker: `php artisan queue:work`.
 
+## Subscriptions and billing
+
+Free, Starter, Pro and Agency plans are defined in one configuration file, with central feature entitlements, atomic monthly AI usage metering, and limits enforced in the web app, the REST API and queue jobs.
+
+The project runs without any Stripe account through **Demo Billing Mode**, a clearly labeled simulation. Open **Billing & Subscription** to change plans, simulate a failed payment, and test limits. See the [billing guide](docs/billing.md).
+
+| Area | How it has been verified |
+| --- | --- |
+| Plans, entitlements, metering, enforcement | Automated tests, plus a concurrency check on MySQL |
+| Demo Billing Mode | Automated tests and a browser walkthrough |
+| Stripe Checkout, webhooks and invoices (Laravel Cashier) | **Simulated only.** Tested with a fake of Stripe's network layer and locally signed webhooks |
+| Real Stripe payments, including Stripe Test Mode | **Not verified** |
+
+Prices are illustrative.
+
 ## About Laravel
 
 Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:

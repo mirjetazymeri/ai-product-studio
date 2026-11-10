@@ -9,18 +9,29 @@ use App\Models\Product;
 use App\Models\ProductContent;
 use App\Models\User;
 use App\Services\AI\Exceptions\AiGenerationException;
+use App\Services\Billing\Exceptions\PlanRestrictionException;
+use App\Services\Billing\PlanEntitlementService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class ProductService
 {
     /**
+     * Every way of creating a product passes here, so the plan limit can't be avoided.
+     *
      * @param  array<string, mixed>  $attributes
      * @param  array<string, array<string, mixed>>  $contents  keyed by language code
+     * @param  bool  $countsTowardsPlan  false only for products of the simulated demo store
+     *
+     * @throws PlanRestrictionException
      */
-    public function create(User $user, array $attributes, array $contents = []): Product
+    public function create(User $user, array $attributes, array $contents = [], bool $countsTowardsPlan = true): Product
     {
-        $product = DB::transaction(function () use ($user, $attributes, $contents) {
+        $product = DB::transaction(function () use ($user, $attributes, $contents, $countsTowardsPlan) {
+            if ($countsTowardsPlan) {
+                app(PlanEntitlementService::class)->ensureCanCreateProduct($user);
+            }
+
             $product = $user->products()->create($attributes);
             $this->saveContents($product, $contents);
 

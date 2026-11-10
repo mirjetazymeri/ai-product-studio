@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Settings;
 use App\Enums\ApiAbility;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Settings\UpdateProfileRequest;
+use App\Services\Billing\PlanEntitlementService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
@@ -12,7 +13,7 @@ use Illuminate\View\View;
 
 class ProfileController extends Controller
 {
-    public function edit(Request $request): View
+    public function edit(Request $request, PlanEntitlementService $entitlements): View
     {
         $newToken = $request->session()->get(ApiTokenController::FLASH_KEY);
 
@@ -20,6 +21,7 @@ class ProfileController extends Controller
             'user' => $request->user(),
             'apiTokens' => $request->user()->tokens()->latest('id')->get(),
             'apiAbilities' => ApiAbility::cases(),
+            'apiIncluded' => $entitlements->can($request->user(), 'api.access'),
             'newApiToken' => $newToken === null ? null : Crypt::decryptString($newToken),
         ]);
     }
