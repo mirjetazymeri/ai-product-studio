@@ -6,14 +6,12 @@ use App\Enums\AiGenerationStatus;
 use App\Enums\BulkItemStatus;
 use App\Enums\ContentLanguage;
 use App\Models\AiGeneration;
-use App\Models\BulkGenerationBatch;
 use App\Models\BulkGenerationItem;
 use App\Models\Product;
-use App\Models\User;
 use App\Models\WooCommerceProductLink;
 use App\Models\WooCommerceStore;
+use App\Services\AI\ContentReviewQueue;
 use App\Services\AI\Exceptions\AiGenerationException;
-use App\Services\AI\GenerationPreferences;
 use App\Services\AI\ProductContentGenerator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -39,7 +37,10 @@ class WooCommerceDemoContentService
 
     private const DEFAULT_COPY = ['for Everyday Use', 'It is a practical choice for everyday use.', 'It is simple to look after and easy to live with.'];
 
-    public function __construct(private readonly ProductContentGenerator $generator) {}
+    public function __construct(
+        private readonly ProductContentGenerator $generator,
+        private readonly ContentReviewQueue $reviewQueue,
+    ) {}
 
     /**
      * Makes no external request and uses no tokens or quota.
@@ -59,7 +60,7 @@ class WooCommerceDemoContentService
 
         DB::transaction(function () use ($store, $links, $language) {
             $user = $store->user;
-            $batch = $this->createBatch($user);
+            $batch = $this->reviewQueue->createBatch($user);
 
             foreach ($links as $link) {
                 $generation = $user->aiGenerations()->create([
@@ -75,7 +76,7 @@ class WooCommerceDemoContentService
                     'generated_content' => $this->sampleFor($link->product),
                 ]);
 
-                $this->queueForReview($batch, $link->product, $generation);
+                $this->reviewQueue->add($batch, $link->product, $generation);
             }
         });
 
@@ -92,7 +93,7 @@ class WooCommerceDemoContentService
     {
         $generation = $this->generator->generate($store->user, $link->product, $this->languageFor($store));
 
-        return DB::transaction(fn () => $this->queueForReview($this->createBatch($store->user), $link->product, $generation));
+        return DB::transaction(fn () => $this->reviewQueue->add($this->reviewQueue->createBatch($store->user), $link->product, $generation));
     }
 
     /**
@@ -138,27 +139,6 @@ class WooCommerceDemoContentService
             ->where('status', BulkItemStatus::Generated->value)
             ->where('review_status', BulkGenerationItem::REVIEW_PENDING)
             ->exists();
-    }
-
-    private function createBatch(User $user): BulkGenerationBatch
-    {
-        return $user->bulkGenerationBatches()->create([
-            'submission_token' => (string) Str::uuid(),
-            'status' => BulkGenerationBatch::COMPLETED,
-            'preferences' => (new GenerationPreferences)->toHistory(),
-        ]);
-    }
-
-    private function queueForReview(BulkGenerationBatch $batch, Product $product, AiGeneration $generation): BulkGenerationItem
-    {
-        return $batch->items()->create([
-            'user_id' => $batch->user_id,
-            'product_id' => $product->id,
-            'ai_generation_id' => $generation->id,
-            'language' => $generation->language,
-            'status' => BulkItemStatus::Generated,
-            'review_status' => BulkGenerationItem::REVIEW_PENDING,
-        ]);
     }
 
     private function languageFor(WooCommerceStore $store): ContentLanguage

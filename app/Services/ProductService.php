@@ -2,11 +2,13 @@
 
 namespace App\Services;
 
+use App\Enums\AiError;
 use App\Enums\ContentLanguage;
 use App\Enums\ContentSource;
 use App\Models\Product;
 use App\Models\ProductContent;
 use App\Models\User;
+use App\Services\AI\Exceptions\AiGenerationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -87,6 +89,30 @@ class ProductService
         $content->save();
 
         return $content;
+    }
+
+    /**
+     * Saves hand-written content. Anything that didn't start out hand-written, such as
+     * approved AI content, is only replaced with explicit confirmation.
+     *
+     * @param  array<string, mixed>  $attributes
+     *
+     * @throws AiGenerationException when content exists and replacing it wasn't confirmed
+     */
+    public function saveManualContent(Product $product, ContentLanguage $language, array $attributes, bool $confirmOverwrite): ProductContent
+    {
+        return DB::transaction(function () use ($product, $language, $attributes, $confirmOverwrite) {
+            // Serializes this with an approval arriving for the same product.
+            Product::query()->lockForUpdate()->findOrFail($product->id);
+
+            $existing = $product->contents()->where('language', $language->value)->first();
+
+            if ($existing !== null && $existing->source !== ContentSource::Manual && ! $confirmOverwrite) {
+                throw new AiGenerationException(AiError::ContentExists);
+            }
+
+            return $this->saveContent($product, $language, $attributes);
+        });
     }
 
     /**

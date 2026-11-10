@@ -29,15 +29,16 @@ final class CatalogExporter
     /**
      * @param  array<string, mixed>  $selection  product_ids, all_matching, search, status
      * @param  list<string>  $languages
+     * @param  bool  $approvedOnly  also leaves out text imported from a store and not yet approved
      */
-    public function createTransfer(User $user, string $fileType, ExportContentScope $scope, array $languages, array $selection): CatalogTransfer
+    public function createTransfer(User $user, string $fileType, ExportContentScope $scope, array $languages, array $selection, bool $approvedOnly = false): CatalogTransfer
     {
         return $user->catalogTransfers()->create([
             'operation' => CatalogTransfer::EXPORT,
             'file_type' => $fileType,
             'status' => CatalogTransferStatus::Queued,
             'total_records' => $this->selection->query($user, $selection)->count(),
-            'options' => ['scope' => $scope->value, 'languages' => $languages, 'selection' => $selection],
+            'options' => ['scope' => $scope->value, 'languages' => $languages, 'selection' => $selection, 'approved_only' => $approvedOnly],
             'expires_at' => now()->addDays((int) config('catalog.retention_days')),
         ]);
     }
@@ -89,6 +90,10 @@ final class CatalogExporter
                 $drafts = $scope->includesDrafts() ? $this->drafts($transfer->user, $products->modelKeys()) : [];
 
                 foreach ($products as $product) {
+                    if ($transfer->options['approved_only'] ?? false) {
+                        $product->setRelation('contents', $product->contents->filter(fn ($content) => $content->source->isApprovedForSync()));
+                    }
+
                     foreach ($this->format->rows($product, $scope, $languages, $drafts[$product->id] ?? []) as $row) {
                         $this->writer->addRow($row);
                     }

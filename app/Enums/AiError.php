@@ -60,6 +60,24 @@ enum AiError: string
         };
     }
 
+    /**
+     * For outside API clients, who shouldn't learn how this server is configured.
+     */
+    public function publicMessage(): string
+    {
+        return $this->isConfigurationProblem() ? 'AI generation is temporarily unavailable.' : $this->message();
+    }
+
+    public function publicCode(): string
+    {
+        return $this->isConfigurationProblem() ? 'ai_unavailable' : $this->value;
+    }
+
+    private function isConfigurationProblem(): bool
+    {
+        return in_array($this, [self::MissingApiKey, self::MissingModel, self::InvalidApiKey, self::ModelUnavailable], true);
+    }
+
     public function httpStatus(): int
     {
         return match ($this) {

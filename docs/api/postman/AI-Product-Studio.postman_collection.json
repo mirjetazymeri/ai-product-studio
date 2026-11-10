@@ -1,0 +1,124 @@
+{
+  "info": {
+    "name": "AI Product Studio API",
+    "description": "Setup: import this collection and the matching environment. In AI Product Studio, open Settings, API Access, generate a token, and paste it into the api_token environment variable. Create Product, Generate Content and Create Export save their IDs automatically. Generation and export need `php artisan queue:work`.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }]
+  },
+  "variable": [],
+  "item": [
+    {
+      "name": "Get authenticated user",
+      "request": { "method": "GET", "header": [{ "key": "Accept", "value": "application/json" }], "url": "{{base_url}}/me" }
+    },
+    {
+      "name": "List products",
+      "request": { "method": "GET", "header": [{ "key": "Accept", "value": "application/json" }], "url": "{{base_url}}/products?per_page=15&sort=-created_at" }
+    },
+    {
+      "name": "Create product",
+      "event": [{
+        "listen": "test",
+        "script": { "type": "text/javascript", "exec": ["if (pm.response.code === 201) { pm.environment.set('product_id', pm.response.json().data.id); }"] }
+      }],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Accept", "value": "application/json" },
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Idempotency-Key", "value": "{{$guid}}" }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"original_name\": \"Gaming Controller Stand\",\n  \"category\": \"Gaming Accessories\",\n  \"material\": \"PLA\",\n  \"details\": \"Holds two PS5 controllers.\"\n}" },
+        "url": "{{base_url}}/products"
+      }
+    },
+    {
+      "name": "Get product",
+      "request": { "method": "GET", "header": [{ "key": "Accept", "value": "application/json" }], "url": "{{base_url}}/products/{{product_id}}" }
+    },
+    {
+      "name": "Update product",
+      "request": {
+        "method": "PATCH",
+        "header": [{ "key": "Accept", "value": "application/json" }, { "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"status\": \"published\"\n}" },
+        "url": "{{base_url}}/products/{{product_id}}"
+      }
+    },
+    {
+      "name": "List product contents",
+      "request": { "method": "GET", "header": [{ "key": "Accept", "value": "application/json" }], "url": "{{base_url}}/products/{{product_id}}/contents" }
+    },
+    {
+      "name": "Analyze product with AI",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Accept", "value": "application/json" }, { "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"prompt\": \"A 3D printed gaming controller stand for PS5 controllers, made from PLA, SKU GCS-100.\"\n}" },
+        "url": "{{base_url}}/ai/analyze-product"
+      }
+    },
+    {
+      "name": "Generate content",
+      "event": [{
+        "listen": "test",
+        "script": { "type": "text/javascript", "exec": ["if (pm.response.code === 202) { pm.environment.set('generation_id', pm.response.json().data.generation_id); }"] }
+      }],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Accept", "value": "application/json" },
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Idempotency-Key", "value": "{{$guid}}" }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"language\": \"en\"\n}" },
+        "url": "{{base_url}}/products/{{product_id}}/generate"
+      }
+    },
+    {
+      "name": "Check generation status",
+      "request": { "method": "GET", "header": [{ "key": "Accept", "value": "application/json" }], "url": "{{base_url}}/generations/{{generation_id}}" }
+    },
+    {
+      "name": "Run SEO analysis",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Accept", "value": "application/json" }, { "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"product_name\": \"Controller Stand\",\n  \"title\": \"Gaming Controller Stand for PS5\",\n  \"keywords\": [\"controller stand\"]\n}" },
+        "url": "{{base_url}}/seo/analyze"
+      }
+    },
+    {
+      "name": "Fetch approved content",
+      "request": { "method": "GET", "header": [{ "key": "Accept", "value": "application/json" }], "url": "{{base_url}}/products/{{product_id}}/approved-content?language=en" }
+    },
+    {
+      "name": "Create export",
+      "event": [{
+        "listen": "test",
+        "script": { "type": "text/javascript", "exec": ["if (pm.response.code === 202) { pm.environment.set('export_id', pm.response.json().data.export_id); }"] }
+      }],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Accept", "value": "application/json" },
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Idempotency-Key", "value": "{{$guid}}" }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"format\": \"csv\",\n  \"languages\": [\"en\"],\n  \"approved_only\": true\n}" },
+        "url": "{{base_url}}/exports"
+      }
+    },
+    {
+      "name": "Check export status",
+      "request": { "method": "GET", "header": [{ "key": "Accept", "value": "application/json" }], "url": "{{base_url}}/exports/{{export_id}}" }
+    },
+    {
+      "name": "Download export",
+      "request": { "method": "GET", "header": [], "url": "{{base_url}}/exports/{{export_id}}/download" }
+    }
+  ]
+}

@@ -6,27 +6,34 @@ use App\Enums\AiError;
 use App\Enums\AiGenerationStatus;
 use App\Enums\ContentLanguage;
 use App\Enums\ContentSource;
+use App\Jobs\GenerateQueuedContent;
 use App\Models\AiGeneration;
 use App\Models\Product;
 use App\Models\User;
 use App\Services\AI\Exceptions\AiGenerationException;
 use App\Services\AI\Prompts\ProductContentPrompt;
 use App\Services\ProductService;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Validator;
+use Throwable;
 
 class ProductContentGenerator
 {
     private const STALE_AFTER_MINUTES = 15;
+
+    private const BUSY_RETRY_SECONDS = 15;
 
     public function __construct(
         private readonly GeminiService $gemini,
         private readonly ProductContentPrompt $prompt,
         private readonly GenerationQuota $quota,
         private readonly ProductService $products,
+        private readonly ContentReviewQueue $reviewQueue,
     ) {}
 
     /**
@@ -64,6 +71,140 @@ class ProductContentGenerator
         } finally {
             $lock->release();
         }
+    }
+
+    /**
+     * Accepts a generation to run on the queue. The row exists, and counts towards quota,
+     * from this moment, so its ID is stable and limits can't be exceeded by a burst.
+     *
+     * @throws AiGenerationException
+     */
+    public function enqueue(
+        User $user,
+        Product $product,
+        ContentLanguage $language,
+        bool $isRegeneration = false,
+        GenerationPreferences $preferences = new GenerationPreferences,
+    ): AiGeneration {
+        $this->ensureProductHasEnoughData($product);
+        $this->gemini->ensureConfigured();
+
+        try {
+            $generation = Cache::lock('ai-generation:accept', 10)->block(5, function () use ($user, $product, $language, $isRegeneration, $preferences) {
+                $this->closeStaleGenerations($user);
+
+                if ($this->activeGeneration($user, $product, $language) !== null) {
+                    throw new AiGenerationException(AiError::DuplicateRequest);
+                }
+
+                $this->quota->ensureAvailableFor($user);
+
+                return $this->start($user, $product, $language, $isRegeneration, $preferences, AiGenerationStatus::Queued);
+            });
+        } catch (LockTimeoutException) {
+            throw new AiGenerationException(AiError::DuplicateRequest);
+        }
+
+        try {
+            GenerateQueuedContent::dispatch($generation->id, $preferences->customInstructions);
+        } catch (Throwable $exception) {
+            report($exception);
+
+            $this->failActive($generation->id, AiError::Unexpected);
+
+            throw new AiGenerationException(AiError::Unexpected);
+        }
+
+        return $generation->refresh();
+    }
+
+    public function activeGeneration(User $user, Product $product, ContentLanguage $language): ?AiGeneration
+    {
+        return $user->aiGenerations()
+            ->where('product_id', $product->id)
+            ->where('language', $language->value)
+            ->whereIn('status', [AiGenerationStatus::Queued->value, AiGenerationStatus::Pending->value, AiGenerationStatus::Processing->value])
+            ->latest('id')
+            ->first();
+    }
+
+    /**
+     * Runs one queued generation. The result waits in Content Review: saved product
+     * content is never touched here.
+     *
+     * @return int|null seconds to wait before trying again, or null when finished
+     */
+    public function processQueued(int $generationId, ?string $customInstructions = null): ?int
+    {
+        $generation = AiGeneration::query()->real()->find($generationId);
+
+        if ($generation === null || $generation->status !== AiGenerationStatus::Queued) {
+            return null;
+        }
+
+        $product = $generation->product;
+
+        if ($product === null) {
+            $this->failActive($generation->id, AiError::ProductMissing);
+
+            return null;
+        }
+
+        if ($generation->created_at->lt(now()->subHours((int) config('api.generation_queue_expiry_hours')))) {
+            $this->failActive($generation->id, AiError::Interrupted);
+
+            return null;
+        }
+
+        // The same per-minute counter as the web forms and bulk generation.
+        $rateLimitKey = md5('ai-generate'.$generation->user_id);
+
+        if (RateLimiter::tooManyAttempts($rateLimitKey, (int) config('services.gemini.per_minute_limit'))) {
+            return RateLimiter::availableIn($rateLimitKey) + 1;
+        }
+
+        $lock = Cache::lock("ai-generation:user:{$generation->user_id}", $this->gemini->maximumDurationInSeconds());
+
+        if (! $lock->get()) {
+            return self::BUSY_RETRY_SECONDS;
+        }
+
+        try {
+            // A retried job finds the row already claimed, so Gemini is only called once.
+            $claimed = AiGeneration::query()
+                ->whereKey($generation->id)
+                ->where('status', AiGenerationStatus::Queued->value)
+                ->update(['status' => AiGenerationStatus::Processing->value, 'updated_at' => now()]);
+
+            if ($claimed !== 1) {
+                return null;
+            }
+
+            RateLimiter::hit($rateLimitKey, 60);
+
+            $generation->refresh();
+
+            $this->run($generation, $product, $generation->language, GenerationPreferences::fromHistory($generation->preferences, $customInstructions));
+
+            $this->reviewQueue->add($this->reviewQueue->createBatch($generation->user, $generation->preferences), $product, $generation);
+        } catch (AiGenerationException) {
+            // run() has already recorded the failure on the generation.
+        } finally {
+            $lock->release();
+        }
+
+        return null;
+    }
+
+    /**
+     * Only a generation still in flight can fail. A finished result is left alone.
+     */
+    public function failActive(int $generationId, AiError $error): void
+    {
+        AiGeneration::query()
+            ->whereKey($generationId)
+            ->whereIn('status', [AiGenerationStatus::Queued->value, AiGenerationStatus::Pending->value, AiGenerationStatus::Processing->value])
+            ->update(['status' => AiGenerationStatus::Failed->value, 'error_code' => $error->value]);
     }
 
     /**
@@ -126,15 +267,19 @@ class ProductContentGenerator
     /**
      * A process killed mid-request leaves a pending row, which would otherwise stay "in progress".
      */
-    private function closeStaleGenerations(User $user): void
+    public function closeStaleGenerations(User $user): void
     {
+        $cutoff = now()->subMinutes(self::STALE_AFTER_MINUTES);
+
+        // A queued generation may start long after it was created, so it's timed from its claim.
         $user->aiGenerations()
-            ->where('status', AiGenerationStatus::Pending->value)
-            ->where('created_at', '<', now()->subMinutes(self::STALE_AFTER_MINUTES))
+            ->where(fn ($query) => $query
+                ->where(fn ($pending) => $pending->where('status', AiGenerationStatus::Pending->value)->where('created_at', '<', $cutoff))
+                ->orWhere(fn ($processing) => $processing->where('status', AiGenerationStatus::Processing->value)->where('updated_at', '<', $cutoff)))
             ->update(['status' => AiGenerationStatus::Failed->value, 'error_code' => AiError::Interrupted->value]);
     }
 
-    private function start(User $user, Product $product, ContentLanguage $language, bool $isRegeneration, GenerationPreferences $preferences): AiGeneration
+    private function start(User $user, Product $product, ContentLanguage $language, bool $isRegeneration, GenerationPreferences $preferences, AiGenerationStatus $status = AiGenerationStatus::Pending): AiGeneration
     {
         return $user->aiGenerations()->create([
             'product_id' => $product->id,
@@ -142,7 +287,7 @@ class ProductContentGenerator
             'provider' => GeminiService::PROVIDER,
             'model' => $this->gemini->model(),
             'language' => $language,
-            'status' => AiGenerationStatus::Pending,
+            'status' => $status,
             'is_regeneration' => $isRegeneration,
             'preferences' => $preferences->toHistory(),
         ]);

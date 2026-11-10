@@ -37,5 +37,17 @@ class AppServiceProvider extends ServiceProvider
                     'retry_after' => isset($headers['Retry-After']) ? (int) $headers['Retry-After'] : null,
                 ], 429, $headers));
         });
+
+        foreach (['api-general' => 'general', 'api-generate' => 'generate', 'api-analyze' => 'analyze', 'api-exports' => 'exports'] as $name => $setting) {
+            RateLimiter::for($name, fn (Request $request) => Limit::perMinute((int) config("api.rate_limits.{$setting}"))
+                ->by($request->user()->id)
+                ->response(fn (Request $request, array $headers) => response()->json([
+                    'message' => 'Too many requests. Please slow down.',
+                    'code' => 'rate_limited',
+                    'retry_after' => isset($headers['Retry-After']) ? (int) $headers['Retry-After'] : null,
+                ], 429, $headers)));
+        }
+
+        RateLimiter::for('api-token-creation', fn (Request $request) => Limit::perMinute((int) config('api.rate_limits.token_creation'))->by($request->user()->id));
     }
 }

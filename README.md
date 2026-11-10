@@ -13,6 +13,25 @@ AI Product Studio includes a WooCommerce Demo Mode: a simulated store that runs 
 
 The integration has been tested only against simulated stores and mocked API responses, not against a production WooCommerce store.
 
+## REST API for external applications
+
+AI Product Studio has a versioned REST API at `/api/v1`, so an ERP, a Laravel project or a custom shop can manage products, queue AI content and collect approved content.
+
+- Laravel Sanctum Bearer tokens with seven granular abilities, managed under **Settings, API Access**. A browser session can't use the API.
+- Queued Gemini generation with status polling, sharing the web app's quotas and rate limits.
+- `Idempotency-Key` support for safe retries, and scoped external product IDs.
+- Multi-user isolation on every endpoint. Another user's resource answers 404.
+- [API guide](docs/api/README.md), [OpenAPI 3 specification](docs/api/openapi.yaml) and a [Postman collection](docs/api/postman/AI-Product-Studio.postman_collection.json).
+
+| Area | How it has been verified |
+| --- | --- |
+| API endpoints, abilities, ownership, idempotency, limits, exports | Automated tests |
+| Bearer tokens, queue and export over real HTTP | Local check against a stand-in for Gemini |
+| Gemini through the API | Simulated responses only |
+| Production deployment | Not verified |
+
+Generation and export need a queue worker: `php artisan queue:work`.
+
 ## About Laravel
 
 Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:

@@ -16,6 +16,8 @@ use App\Http\Controllers\Integrations\WooCommerceProductController;
 use App\Http\Controllers\Integrations\WooCommerceStoreController;
 use App\Http\Controllers\Integrations\WooCommerceSyncController;
 use App\Http\Controllers\ProductController;
+use App\Http\Controllers\Settings\ApiDocumentationController;
+use App\Http\Controllers\Settings\ApiTokenController;
 use App\Http\Controllers\Settings\PasswordController;
 use App\Http\Controllers\Settings\ProfileController;
 use Illuminate\Support\Facades\Route;
@@ -116,6 +118,12 @@ Route::middleware('auth')->group(function () {
         Route::get('/', [ProfileController::class, 'edit'])->name('edit');
         Route::patch('profile', [ProfileController::class, 'update'])->name('profile.update');
         Route::put('password', [PasswordController::class, 'update'])->name('password.update');
+
+        Route::post('api-tokens', [ApiTokenController::class, 'store'])->middleware('throttle:api-token-creation')->name('api-tokens.store');
+        Route::delete('api-tokens/{token}', [ApiTokenController::class, 'destroy'])->whereNumber('token')->name('api-tokens.destroy');
+
+        Route::get('api-docs/openapi.yaml', [ApiDocumentationController::class, 'openApi'])->name('api-docs.openapi');
+        Route::get('api-docs/{page}', [ApiDocumentationController::class, 'show'])->name('api-docs');
     });
 });
 

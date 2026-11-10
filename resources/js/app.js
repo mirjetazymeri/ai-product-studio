@@ -83,10 +83,28 @@ function setupAutoSubmit() {
     });
 }
 
+function setupCopyButtons() {
+    document.querySelectorAll('[data-copy]').forEach((button) => {
+        button.addEventListener('click', async () => {
+            const field = document.querySelector(button.dataset.copy);
+
+            field.select();
+
+            try {
+                await navigator.clipboard.writeText(field.value);
+                button.textContent = 'Copied';
+            } catch {
+                // Clipboard access can be refused. The value stays selected for copying by hand.
+            }
+        });
+    });
+}
+
 setupSidebar();
 setupTabs();
 setupConfirmations();
 setupAutoSubmit();
+setupCopyButtons();
 setupAiPanels();
 setupProductAnalysis();
 setupCatalog();

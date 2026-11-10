@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 // user_id is deliberately not fillable: ownership is only set through $user->aiGenerations().
 #[Fillable(['product_id', 'product_name', 'provider', 'model', 'language', 'status', 'is_regeneration', 'preferences', 'input_tokens', 'output_tokens', 'total_tokens', 'generated_content', 'error_code', 'saved_at'])]
@@ -67,6 +68,14 @@ class AiGeneration extends Model
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
+    }
+
+    /**
+     * @return HasOne<BulkGenerationItem, $this>
+     */
+    public function reviewItem(): HasOne
+    {
+        return $this->hasOne(BulkGenerationItem::class, 'ai_generation_id');
     }
 
     public function errorMessage(): ?string

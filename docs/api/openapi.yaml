@@ -1,0 +1,829 @@
+﻿openapi: 3.0.3
+info:
+  title: AI Product Studio REST API
+  version: 1.0.0
+  description: |
+    Lets external applications manage products, request AI content, and retrieve
+    approved content from AI Product Studio.
+
+    Every operation needs a Bearer token created under Settings, API Access. Each
+    operation lists the token ability it needs in `x-token-ability`. A token only
+    ever reaches its owner's products. Another user's resource answers 404.
+servers:
+  - url: https://ai-product-studio.test/api/v1
+    description: Local Laragon development
+security:
+  - bearerAuth: []
+tags:
+  - name: Authentication
+  - name: Products
+  - name: External references
+  - name: Content
+  - name: AI
+  - name: SEO
+  - name: Exports
+paths:
+  /me:
+    get:
+      tags: [Authentication]
+      summary: Get the authenticated user and token
+      operationId: getMe
+      responses:
+        '200':
+          description: The token's owner and abilities.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Me'
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /products:
+    get:
+      tags: [Products]
+      summary: List products
+      operationId: listProducts
+      x-token-ability: products:read
+      parameters:
+        - { name: search, in: query, schema: { type: string, maxLength: 100 }, description: Matches the name or SKU. }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/ProductStatus' } }
+        - { name: language, in: query, schema: { $ref: '#/components/schemas/Language' }, description: Only products with saved content in this language. }
+        - { name: sku, in: query, schema: { type: string, maxLength: 100 } }
+        - { name: external_source, in: query, schema: { type: string, maxLength: 50 }, description: Required together with external_id. }
+        - { name: external_id, in: query, schema: { type: string, maxLength: 191 }, description: Required together with external_source. }
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [created_at, -created_at, updated_at, -updated_at, name, -name]
+            default: -created_at
+          description: A leading minus sorts in descending order.
+        - { name: per_page, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 15 } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+      responses:
+        '200':
+          description: A page of products.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Product' }
+                  links: { $ref: '#/components/schemas/PageLinks' }
+                  meta: { $ref: '#/components/schemas/PageMeta' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    post:
+      tags: [Products]
+      summary: Create a product
+      operationId: createProduct
+      x-token-ability: products:write
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProductCreate' }
+      responses:
+        '201':
+          description: Created.
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductEnvelope' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /products/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ProductId'
+    get:
+      tags: [Products]
+      summary: Get a product
+      operationId: getProduct
+      x-token-ability: products:read
+      responses:
+        '200':
+          description: The product.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Products]
+      summary: Update permitted product fields
+      operationId: updateProduct
+      x-token-ability: products:write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProductUpdate' }
+      responses:
+        '200':
+          description: The updated product.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      tags: [Products]
+      summary: Delete a local product
+      description: |
+        Only the local record is deleted. Nothing is ever sent to a connected store. A
+        product linked to a store answers 409 unless `unlink_stores=true` is added.
+      operationId: deleteProduct
+      x-token-ability: products:write
+      parameters:
+        - { name: unlink_stores, in: query, schema: { type: boolean, default: false } }
+      responses:
+        '204': { description: Deleted. }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /products/{id}/external-references/{source}:
+    parameters:
+      - $ref: '#/components/parameters/ProductId'
+      - name: source
+        in: path
+        required: true
+        schema: { type: string, pattern: '^[a-z0-9][a-z0-9._-]{0,49}$' }
+        description: Your name for the outside system. Names starting with woocommerce- or shopify- are reserved.
+    put:
+      tags: [External references]
+      summary: Map this product to an ID in an outside system
+      description: One ID per source and product. An ID already mapped to another product in that source answers 409.
+      operationId: putExternalReference
+      x-token-ability: products:write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [external_id]
+              properties:
+                external_id: { type: string, maxLength: 191 }
+      responses:
+        '200':
+          description: The product with its references.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      tags: [External references]
+      summary: Remove a mapping
+      operationId: deleteExternalReference
+      x-token-ability: products:write
+      responses:
+        '204': { description: Removed. The product itself is unchanged. }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /products/{id}/contents:
+    parameters:
+      - $ref: '#/components/parameters/ProductId'
+    get:
+      tags: [Content]
+      summary: List saved content in every language
+      description: Drafts waiting for review are not included.
+      operationId: listContents
+      x-token-ability: content:read
+      responses:
+        '200':
+          description: Saved content.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Content' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /products/{id}/contents/{language}:
+    parameters:
+      - $ref: '#/components/parameters/ProductId'
+      - $ref: '#/components/parameters/LanguagePath'
+    get:
+      tags: [Content]
+      summary: Get saved content for one language
+      operationId: getContent
+      x-token-ability: content:read
+      responses:
+        '200':
+          description: The content.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContentEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Content]
+      summary: Create or replace hand-written content
+      description: |
+        Replaces the whole record, so a field left out is cleared. Content that wasn't
+        hand-written, such as approved AI content, answers 409 unless
+        `confirm_overwrite` is true.
+      operationId: putContent
+      x-token-ability: content:write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ContentWrite' }
+      responses:
+        '200':
+          description: Replaced.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContentEnvelope' }
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContentEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /products/{id}/approved-content:
+    parameters:
+      - $ref: '#/components/parameters/ProductId'
+    get:
+      tags: [Content]
+      summary: Get approved content for one language
+      description: |
+        Returns saved content that a person wrote or approved. Text imported from a
+        store and not yet approved, and drafts waiting for review, are never returned.
+      operationId: getApprovedContent
+      x-token-ability: content:read
+      parameters:
+        - { name: language, in: query, required: true, schema: { $ref: '#/components/schemas/Language' } }
+      responses:
+        '200':
+          description: The approved content.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContentEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /ai/analyze-product:
+    post:
+      tags: [AI]
+      summary: Read a description into product fields
+      description: Sends one Gemini request and uses your AI quota. No product is created.
+      operationId: analyzeProduct
+      x-token-ability: ai:generate
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [prompt]
+              properties:
+                prompt: { type: string, minLength: 15, maxLength: 5000 }
+      responses:
+        '200':
+          description: Fields found in the description. They can be sent to POST /products.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/ProductAnalysis' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /products/{id}/generate:
+    parameters:
+      - $ref: '#/components/parameters/ProductId'
+    post:
+      tags: [AI]
+      summary: Queue AI content generation
+      description: |
+        Accepts the request and returns a generation ID to poll. Counts towards your
+        daily AI quota from this moment. The result waits in Content Review and never
+        changes saved content by itself. Needs a running queue worker.
+      operationId: generateContent
+      x-token-ability: ai:generate
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GenerationRequest' }
+      responses:
+        '202':
+          description: Accepted.
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/GenerationAccepted' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /generations/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    get:
+      tags: [AI]
+      summary: Poll a generation
+      operationId: getGeneration
+      x-token-ability: ai:read
+      responses:
+        '200':
+          description: The generation's current state.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Generation' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /seo/analyze:
+    post:
+      tags: [SEO]
+      summary: Score content against the SEO checklist
+      description: Rule-based. Makes no Gemini request and uses no AI quota.
+      operationId: analyzeSeo
+      x-token-ability: content:read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SeoRequest' }
+      responses:
+        '200':
+          description: The analysis.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/SeoResult' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /exports:
+    post:
+      tags: [Exports]
+      summary: Queue a product export
+      description: Needs a running queue worker. Drafts waiting for review are never exported.
+      operationId: createExport
+      x-token-ability: exports:read
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ExportRequest' }
+      responses:
+        '202':
+          description: Accepted.
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      export_id: { type: integer }
+                      status: { type: string, example: queued }
+                      format: { type: string, enum: [csv, xlsx] }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /exports/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    get:
+      tags: [Exports]
+      summary: Get an export's status
+      operationId: getExport
+      x-token-ability: exports:read
+      responses:
+        '200':
+          description: The export.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Export' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /exports/{id}/download:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    get:
+      tags: [Exports]
+      summary: Download a finished export
+      description: Needs the same token as any other call. Files are removed after the retention period.
+      operationId: downloadExport
+      x-token-ability: exports:read
+      responses:
+        '200':
+          description: The file.
+          content:
+            text/csv: { schema: { type: string, format: binary } }
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet: { schema: { type: string, format: binary } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '410': { $ref: '#/components/responses/Gone' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: A token created under Settings, API Access.
+  parameters:
+    ProductId:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer }
+    LanguagePath:
+      name: language
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Language' }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      schema: { type: string, pattern: '^[A-Za-z0-9_\-:.]{1,255}$' }
+      description: Makes a retry safe. See the idempotency section of docs/api/README.md.
+  schemas:
+    Language: { type: string, enum: [en, sq, de] }
+    ProductStatus: { type: string, enum: [draft, published] }
+    Me:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        email: { type: string, format: email }
+        token:
+          type: object
+          properties:
+            name: { type: string }
+            abilities:
+              type: array
+              items:
+                type: string
+                enum: ['products:read', 'products:write', 'content:read', 'content:write', 'ai:generate', 'ai:read', 'exports:read']
+            expires_at: { type: string, format: date-time, nullable: true }
+    ExternalReference:
+      type: object
+      required: [source, external_id]
+      properties:
+        source: { type: string, pattern: '^[a-z0-9][a-z0-9._-]{0,49}$' }
+        external_id: { type: string, maxLength: 191 }
+    Product:
+      type: object
+      properties:
+        id: { type: integer, example: 15 }
+        name: { type: string, example: Gaming Controller Stand }
+        sku: { type: string, nullable: true }
+        category: { type: string, nullable: true }
+        material: { type: string, nullable: true }
+        details: { type: string, nullable: true }
+        status: { $ref: '#/components/schemas/ProductStatus' }
+        languages:
+          type: array
+          items: { $ref: '#/components/schemas/Language' }
+        external_references:
+          type: array
+          items: { $ref: '#/components/schemas/ExternalReference' }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    ProductEnvelope:
+      type: object
+      properties:
+        data: { $ref: '#/components/schemas/Product' }
+    ProductCreate:
+      type: object
+      required: [original_name]
+      properties:
+        original_name: { type: string, maxLength: 255 }
+        sku: { type: string, maxLength: 100, nullable: true, description: Unique within your catalog. }
+        category: { type: string, maxLength: 120, nullable: true }
+        material: { type: string, maxLength: 120, nullable: true }
+        details: { type: string, maxLength: 10000, nullable: true }
+        status: { $ref: '#/components/schemas/ProductStatus' }
+        external_reference: { $ref: '#/components/schemas/ExternalReference' }
+    ProductUpdate:
+      type: object
+      properties:
+        original_name: { type: string, maxLength: 255 }
+        sku: { type: string, maxLength: 100, nullable: true }
+        category: { type: string, maxLength: 120, nullable: true }
+        material: { type: string, maxLength: 120, nullable: true }
+        details: { type: string, maxLength: 10000, nullable: true }
+        status: { $ref: '#/components/schemas/ProductStatus' }
+    Content:
+      type: object
+      properties:
+        product_id: { type: integer }
+        language: { $ref: '#/components/schemas/Language' }
+        title: { type: string, nullable: true }
+        short_description: { type: string, nullable: true }
+        long_description: { type: string, nullable: true }
+        meta_title: { type: string, nullable: true }
+        meta_description: { type: string, nullable: true }
+        slug: { type: string, nullable: true }
+        keywords:
+          type: array
+          items: { type: string }
+        source: { type: string, enum: [manual, ai, woocommerce, sample] }
+        approved: { type: boolean, description: Whether a person wrote or approved this text. }
+        updated_at: { type: string, format: date-time }
+    ContentEnvelope:
+      type: object
+      properties:
+        data: { $ref: '#/components/schemas/Content' }
+    ContentWrite:
+      type: object
+      description: At least one field other than slug is required.
+      properties:
+        title: { type: string, maxLength: 255, nullable: true }
+        short_description: { type: string, maxLength: 1000, nullable: true }
+        long_description: { type: string, maxLength: 20000, nullable: true }
+        meta_title: { type: string, maxLength: 255, nullable: true }
+        meta_description: { type: string, maxLength: 500, nullable: true }
+        slug: { type: string, maxLength: 255, nullable: true, description: Normalized. Built from the title when left out. }
+        keywords:
+          type: array
+          maxItems: 30
+          nullable: true
+          items: { type: string, maxLength: 64 }
+        confirm_overwrite: { type: boolean, default: false }
+    ProductAnalysis:
+      type: object
+      properties:
+        original_name: { type: string }
+        sku: { type: string, nullable: true }
+        category: { type: string, nullable: true }
+        material: { type: string, nullable: true }
+        details: { type: string, nullable: true }
+        status: { $ref: '#/components/schemas/ProductStatus' }
+    GenerationRequest:
+      type: object
+      required: [language]
+      properties:
+        language: { $ref: '#/components/schemas/Language' }
+        regenerate: { type: boolean, default: false }
+        tone: { type: string, description: A value from the ContentTone enum. Invalid values answer 422. }
+        audience: { type: string, description: A value from the TargetAudience enum. }
+        custom_audience: { type: string, maxLength: 80, description: Required when audience is custom. }
+        length: { type: string, description: A value from the ContentLength enum. }
+        style: { type: string, description: A value from the WritingStyle enum. }
+        custom_instructions: { type: string, maxLength: 1000 }
+    GenerationAccepted:
+      type: object
+      properties:
+        generation_id: { type: integer, example: 123 }
+        status: { type: string, example: queued }
+        product_id: { type: integer, example: 15 }
+        language: { $ref: '#/components/schemas/Language' }
+    Generation:
+      type: object
+      properties:
+        generation_id: { type: integer }
+        product_id: { type: integer, nullable: true, description: Null once the product has been deleted. }
+        language: { $ref: '#/components/schemas/Language' }
+        status: { type: string, enum: [queued, processing, succeeded, failed] }
+        is_regeneration: { type: boolean }
+        content:
+          type: object
+          nullable: true
+          description: Present once succeeded. This is a draft until a person approves it.
+        review_status: { type: string, enum: [pending, approved, rejected], nullable: true }
+        usage:
+          type: object
+          nullable: true
+          properties:
+            input_tokens: { type: integer, nullable: true }
+            output_tokens: { type: integer, nullable: true }
+            total_tokens: { type: integer }
+        error:
+          type: object
+          nullable: true
+          properties:
+            code: { type: string }
+            message: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    SeoRequest:
+      type: object
+      description: At least one content field is required.
+      properties:
+        product_name: { type: string, maxLength: 255, nullable: true }
+        title: { type: string, maxLength: 255, nullable: true }
+        short_description: { type: string, maxLength: 1000, nullable: true }
+        long_description: { type: string, maxLength: 20000, nullable: true }
+        meta_title: { type: string, maxLength: 255, nullable: true }
+        meta_description: { type: string, maxLength: 500, nullable: true }
+        slug: { type: string, maxLength: 255, nullable: true }
+        keywords:
+          type: array
+          maxItems: 30
+          nullable: true
+          items: { type: string, maxLength: 64 }
+    SeoResult:
+      type: object
+      properties:
+        score: { type: integer, minimum: 0, maximum: 100 }
+        field_feedback:
+          type: array
+          items:
+            type: object
+            properties:
+              key: { type: string }
+              label: { type: string }
+              field: { type: string }
+              points: { type: integer }
+              max: { type: integer }
+              status: { type: string, enum: [good, missing, needs_improvement] }
+              message: { type: string }
+        warnings:
+          type: array
+          items: { type: string }
+        suggestions:
+          type: array
+          items: { type: string }
+    ExportRequest:
+      type: object
+      required: [format]
+      properties:
+        format: { type: string, enum: [csv, xlsx] }
+        languages:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/Language' }
+          description: Every language when left out.
+        approved_only:
+          type: boolean
+          default: true
+          description: When false, also includes saved text imported from a store.
+        product_ids:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          items: { type: integer }
+          description: Your whole catalog when left out.
+    Export:
+      type: object
+      properties:
+        export_id: { type: integer }
+        status: { type: string, enum: [queued, processing, completed, failed] }
+        format: { type: string, enum: [csv, xlsx] }
+        total_records: { type: integer }
+        successful_records: { type: integer }
+        approved_only: { type: boolean }
+        languages:
+          type: array
+          items: { $ref: '#/components/schemas/Language' }
+        file_name: { type: string, nullable: true }
+        download_url: { type: string, nullable: true }
+        error: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        completed_at: { type: string, format: date-time, nullable: true }
+        expires_at: { type: string, format: date-time, nullable: true }
+    PageLinks:
+      type: object
+      properties:
+        first: { type: string, nullable: true }
+        last: { type: string, nullable: true }
+        prev: { type: string, nullable: true }
+        next: { type: string, nullable: true }
+    PageMeta:
+      type: object
+      properties:
+        current_page: { type: integer }
+        from: { type: integer, nullable: true }
+        last_page: { type: integer }
+        path: { type: string }
+        per_page: { type: integer }
+        to: { type: integer, nullable: true }
+        total: { type: integer }
+    Error:
+      type: object
+      required: [message, code]
+      properties:
+        message: { type: string }
+        code: { type: string, description: A stable machine-readable value. }
+        retry_after: { type: integer, nullable: true, description: Seconds, on some responses. }
+    ValidationError:
+      type: object
+      required: [message, errors]
+      properties:
+        message: { type: string, example: The given data was invalid. }
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items: { type: string }
+  responses:
+    BadRequest:
+      description: Malformed JSON or Idempotency-Key.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthenticated:
+      description: Missing, wrong, revoked or expired token.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: The token lacks the required ability, or HTTPS is required.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Doesn't exist, or belongs to another user.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: A duplicate, an overwrite needing confirmation, or an Idempotency-Key conflict.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Gone:
+      description: The export file has expired.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ValidationFailed:
+      description: Invalid input.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ValidationError' }
+    RateLimited:
+      description: A rate limit or the daily AI quota was reached.
+      headers:
+        Retry-After: { schema: { type: integer } }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unavailable:
+      description: AI generation is temporarily unavailable.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
